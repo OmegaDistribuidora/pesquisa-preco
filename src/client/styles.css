@@ -755,6 +755,15 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.answerStack {
+  display: grid;
+  gap: 8px;
+}
+
+.answerStack p {
+  margin: 0;
+}
+
 .submissionLogList {
   display: grid;
   gap: 10px;

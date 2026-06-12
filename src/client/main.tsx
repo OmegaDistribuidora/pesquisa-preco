@@ -1169,35 +1169,35 @@ function renderAnswer(answer: AdminAnswer, openPreview: (preview: { url: string;
   const fileUnavailableText = answer.fileUnavailable ? `Não consigo tirar a foto: ${answer.fileUnavailableReason || "sem justificativa"}` : "";
   const valueText = answer.valueText === "[object Object]" ? "" : answer.valueText;
   const baseValue = valueText || (answer.valueNumber ? (answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber)) : "") || (Array.isArray(answer.valueJson) ? answer.valueJson.join(", ") : answer.valueJson ? String(answer.valueJson) : "");
-  if (fileUnavailableText && baseValue) return `${baseValue} | ${fileUnavailableText}`;
-  if (fileUnavailableText) return fileUnavailableText;
   const imageFiles = answer.files?.filter((file) => file.fileMime?.startsWith("image/") && file.fileUrl) || [];
-  if (imageFiles.length) {
+  const otherFiles = answer.files?.filter((file) => !(file.fileMime?.startsWith("image/") && file.fileUrl)) || [];
+  const hasSingleImage = Boolean(answer.fileUrl && answer.fileName && answer.fileMime?.startsWith("image/"));
+
+  if (baseValue || fileUnavailableText || imageFiles.length || otherFiles.length || hasSingleImage || answer.fileName) {
     return (
-      <div className="answerImageGrid">
-        {imageFiles.map((file) => (
-          <button type="button" onClick={() => openPreview({ url: file.fileUrl || "", name: file.fileName })} key={`${file.fileUrl}-${file.fileName}`}>
-            <img src={file.fileUrl} alt={file.fileName} />
+      <div className="answerStack">
+        {baseValue && <p>{baseValue}</p>}
+        {fileUnavailableText && <p>{fileUnavailableText}</p>}
+        {imageFiles.length > 0 && (
+          <div className="answerImageGrid">
+            {imageFiles.map((file) => (
+              <button type="button" onClick={() => openPreview({ url: file.fileUrl || "", name: file.fileName })} key={`${file.fileUrl}-${file.fileName}`}>
+                <img src={file.fileUrl} alt={file.fileName} />
+              </button>
+            ))}
+          </div>
+        )}
+        {otherFiles.length > 0 && <p>{otherFiles.map((file) => file.fileName).join(", ")}</p>}
+        {hasSingleImage && (
+          <button type="button" onClick={() => openPreview({ url: answer.fileUrl || "", name: answer.fileName || "Imagem" })} className="answerSingleImage">
+            <img src={answer.fileUrl} alt={answer.fileName} />
           </button>
-        ))}
+        )}
+        {!imageFiles.length && !hasSingleImage && answer.fileName && <p>{answer.fileName}</p>}
       </div>
     );
   }
-  if (answer.files?.length) return answer.files.map((file) => file.fileName).join(", ");
-  if (answer.fileUrl && answer.fileName && answer.fileMime?.startsWith("image/")) {
-    const url = answer.fileUrl;
-    const name = answer.fileName;
-    return (
-      <button type="button" onClick={() => openPreview({ url, name })} className="answerSingleImage">
-        <img src={url} alt={name} />
-      </button>
-    );
-  }
-  if (answer.fileName) return answer.fileName;
-  if (valueText) return valueText;
-  if (answer.valueNumber) return answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber);
-  if (Array.isArray(answer.valueJson)) return answer.valueJson.join(", ");
-  if (answer.valueJson) return String(answer.valueJson);
+
   return "Sem resposta";
 }
 
