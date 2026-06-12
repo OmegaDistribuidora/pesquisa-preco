@@ -64,4 +64,6 @@ O projeto roda como um unico processo no Railway: o Express serve a API e tambem
 
 Configure um servico Postgres no Railway e adicione `DATABASE_URL`, `ADMIN_LOGIN`, `ADMIN_PASSWORD`, `SESSION_SECRET` e `UPLOAD_DIR` no servico web. Para imagens/arquivos, crie um volume no Railway e monte no caminho usado em `UPLOAD_DIR`, por exemplo `/data/uploads`.
 
+`PUBLIC_BASE_URL` e opcional. Se ficar vazio, o sistema monta links publicos de arquivos usando o proprio dominio da requisicao. Use essa variavel apenas se quiser forcar um dominio especifico, como um dominio customizado.
+
 O comando de build e `npm run build`; o comando de start e `npm start`.

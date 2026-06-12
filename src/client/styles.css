@@ -1118,6 +1118,8 @@ button:disabled {
 .responseShell .fileBox {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
   border-color: rgba(46, 194, 126, 0.34);
   background: rgba(46, 194, 126, 0.06);
 }
@@ -1131,6 +1133,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .fileActionButton {
@@ -1162,6 +1165,8 @@ button:disabled {
   padding: 0;
   display: grid;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fileList li {
@@ -1169,10 +1174,23 @@ button:disabled {
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   padding: 8px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(133, 167, 255, 0.16);
+}
+
+.fileList li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileList li button {
+  flex: 0 0 auto;
 }
 
 .responseSubmitBar {

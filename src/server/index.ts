@@ -29,6 +29,7 @@ const upload = multer({ dest: config.uploadDir, limits: { fileSize: 50 * 1024 * 
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.get("/api/question-images/:file", async (req, res) => {
@@ -41,6 +42,24 @@ app.get("/api/question-images/:file", async (req, res) => {
   res.sendFile(path.join(config.uploadDir, file));
 });
 app.get("/api/admin/files/:file", requireAdmin, async (req, res) => {
+  const file = path.basename(String(req.params.file));
+  const result = await pool.query(
+    `select file_name, file_mime from answer_files where file_path=$1
+     union all
+     select file_name, file_mime from answers where file_path=$1
+     limit 1`,
+    [file]
+  );
+  if (!result.rowCount) {
+    res.status(404).json({ error: "Arquivo não encontrado." });
+    return;
+  }
+  const originalName = path.basename(String(result.rows[0].file_name || "arquivo"));
+  res.type(result.rows[0].file_mime || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${originalName}"`);
+  res.sendFile(path.join(config.uploadDir, file));
+});
+app.get("/api/files/:file", async (req, res) => {
   const file = path.basename(String(req.params.file));
   const result = await pool.query(
     `select file_name, file_mime from answer_files where file_path=$1
@@ -206,6 +225,11 @@ function formatExportNumber(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "";
   return number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function publicFileUrl(req: express.Request, filePath: string) {
+  const baseUrl = config.publicBaseUrl || `${req.protocol}://${req.get("host")}`;
+  return `${baseUrl.replace(/\/$/, "")}/api/files/${encodeURIComponent(filePath)}`;
 }
 
 app.post("/api/admin/login", (req, res) => {
@@ -432,17 +456,21 @@ app.get("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
 app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
   const data = await pool.query(
     `select s.title as survey_title, q.title as question_title, q.position, q.text_type, r.id as response_id, r.submitted_at,
-      coalesce(nullif(string_agg(af.file_name, ', ' order by af.created_at), ''), a.file_name, a.value_text, a.value_number::text, a.value_json::text, '') as answer,
+      coalesce(a.value_text, a.value_number::text, a.value_json::text, '') as answer,
       a.value_number,
+      coalesce(files.file_paths, case when a.file_path is not null then array[a.file_path] else array[]::text[] end) as file_paths,
       coalesce(a.no_answer, false) as no_answer,
       a.no_answer_reason
     from surveys s
     join questions q on q.survey_id = s.id
     left join responses r on r.survey_id = s.id
     left join answers a on a.response_id = r.id and a.question_id = q.id
-    left join answer_files af on af.answer_id = a.id
+    left join lateral (
+      select array_agg(answer_files.file_path order by answer_files.created_at) as file_paths
+      from answer_files
+      where answer_files.answer_id = a.id
+    ) files on true
     where s.id=$1
-    group by s.title, q.title, q.position, q.text_type, r.id, r.submitted_at, a.id
     order by r.submitted_at desc, q.position`,
     [req.params.id]
   );
@@ -451,11 +479,10 @@ app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
   for (const row of data.rows) {
     const id = row.response_id || "sem_respostas";
     const record = byResponse.get(id) || { "Data da resposta": row.submitted_at ? new Date(row.submitted_at).toLocaleString("pt-BR") : "" };
-    record[row.question_title] = row.no_answer
-      ? `Não tenho uma resposta: ${row.no_answer_reason || ""}`
-      : row.text_type === "currency" && row.value_number !== null
-        ? formatExportNumber(row.value_number)
-        : normalizeExportAnswer(row.answer);
+    const links = Array.isArray(row.file_paths) ? row.file_paths.filter(Boolean).map((filePath: string) => publicFileUrl(req, filePath)) : [];
+    const answer = row.text_type === "currency" && row.value_number !== null ? formatExportNumber(row.value_number) : normalizeExportAnswer(row.answer);
+    const parts = [answer, ...links].filter((part) => String(part || "").trim() !== "");
+    record[row.question_title] = row.no_answer ? `Não tenho uma resposta: ${row.no_answer_reason || ""}` : parts.join(" | ");
     byResponse.set(id, record);
   }
   const rows = [...byResponse.values()];

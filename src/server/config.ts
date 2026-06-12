@@ -23,5 +23,6 @@ export const config = {
   adminLogin: process.env.ADMIN_LOGIN || localCredentials.admin_login || "",
   adminPassword: process.env.ADMIN_PASSWORD || localCredentials.admin_password || "",
   sessionSecret: process.env.SESSION_SECRET || "dev-secret-change-me",
-  uploadDir: process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads")
+  uploadDir: process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads"),
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || ""
 };
