@@ -1,0 +1,9 @@
+node_modules/
+dist/
+uploads/
+.local-pg/
+.env
+.env.*
+!.env.example
+credenciais.txt
+npm-debug.log*
