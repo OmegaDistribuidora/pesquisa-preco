@@ -1,6 +1,6 @@
 {
   "name": "pesquisa-preco",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sistema web de pesquisas anonimas de preco com painel administrativo.",
   "type": "module",
   "main": "dist/server/index.js",

@@ -117,6 +117,12 @@ function inputDateTime(date = new Date()) {
   return copy.toISOString().slice(0, 16);
 }
 
+function localDateTimeToIso(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString();
+}
+
 function questionDefaults(): Question {
   return {
     id: crypto.randomUUID(),
@@ -754,8 +760,8 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
         title,
         description,
         imageUrl,
-        startsAt,
-        endsAt,
+        startsAt: localDateTimeToIso(startsAt),
+        endsAt: localDateTimeToIso(endsAt),
         questions: questions.map((question) => ({
           id: question.id,
           title: question.title,
