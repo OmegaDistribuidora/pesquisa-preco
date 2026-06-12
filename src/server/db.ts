@@ -92,5 +92,18 @@ export async function migrate() {
       file_size integer not null,
       created_at timestamptz not null default now()
     );
+
+    create table if not exists submission_logs (
+      id uuid primary key,
+      survey_id uuid references surveys(id) on delete cascade,
+      response_id uuid,
+      status text not null check (status in ('started','success','failed')),
+      error_message text,
+      respondent_key text,
+      ip_hash text,
+      user_agent text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
   `);
 }

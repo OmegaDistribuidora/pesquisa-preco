@@ -457,7 +457,15 @@ app.get("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
     order by r.submitted_at desc`,
     [req.params.id]
   );
-  res.json({ survey: survey.rows[0], questions: questions.rows, responses: responses.rows });
+  const submissionLogs = await pool.query(
+    `select id, response_id, status, error_message, user_agent, created_at, updated_at
+    from submission_logs
+    where survey_id=$1
+    order by created_at desc
+    limit 20`,
+    [req.params.id]
+  );
+  res.json({ survey: survey.rows[0], questions: questions.rows, responses: responses.rows, submissionLogs: submissionLogs.rows });
 });
 
 app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
@@ -535,8 +543,18 @@ app.get("/api/surveys/:id", publicLimiter, async (req, res) => {
 
 app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, res) => {
   const client = await pool.connect();
+  let logId = "";
+  const responseId = uuid();
   try {
     const respondentKey = getRespondentKey(req, res);
+    const ipHash = crypto.createHash("sha256").update(String(req.ip || "")).digest("hex");
+    const userAgent = String(req.headers["user-agent"] || "").slice(0, 500);
+    logId = uuid();
+    await pool.query(
+      `insert into submission_logs (id, survey_id, response_id, status, respondent_key, ip_hash, user_agent)
+      values ($1,$2,$3,'started',$4,$5,$6)`,
+      [logId, req.params.id, responseId, respondentKey, ipHash, userAgent]
+    );
     const survey = await client.query("select id from surveys where id=$1 and starts_at <= now() and ends_at >= now() and closed_at is null", [req.params.id]);
     if (!survey.rowCount) throw new Error("Pesquisa encerrada ou indisponível.");
     const questions = await client.query("select * from questions where survey_id=$1 order by position", [req.params.id]);
@@ -546,7 +564,6 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
       return acc;
     }, {});
 
-    const responseId = uuid();
     await client.query("begin");
     await client.query(
       "insert into responses (id, survey_id, respondent_key, ip_hash, user_agent) values ($1,$2,$3,$4,$5)",
@@ -554,8 +571,8 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
         responseId,
         req.params.id,
         respondentKey,
-        crypto.createHash("sha256").update(String(req.ip || "")).digest("hex"),
-        String(req.headers["user-agent"] || "").slice(0, 500)
+        ipHash,
+        userAgent
       ]
     );
 
@@ -635,9 +652,13 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
       }
     }
     await client.query("commit");
-    res.status(201).json({ ok: true });
+    if (logId) await pool.query("update submission_logs set status='success', updated_at=now() where id=$1", [logId]);
+    res.status(201).json({ ok: true, responseId });
   } catch (error) {
     await client.query("rollback");
+    if (logId) {
+      await pool.query("update submission_logs set status='failed', error_message=$2, updated_at=now() where id=$1", [logId, error instanceof Error ? error.message : "Erro ao enviar resposta."]);
+    }
     const code = error && typeof error === "object" && "code" in error && error.code === "23505" ? 409 : 400;
     res.status(code).json({ error: code === 409 ? "Esta pesquisa já foi respondida neste navegador." : error instanceof Error ? error.message : "Erro ao enviar resposta." });
   } finally {

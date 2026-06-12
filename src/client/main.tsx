@@ -36,6 +36,17 @@ type Detail = {
   survey: Survey;
   questions: Question[];
   responses?: Array<{ id: string; submitted_at: string; answers: Record<string, AdminAnswer> }>;
+  submissionLogs?: SubmissionLog[];
+};
+
+type SubmissionLog = {
+  id: string;
+  response_id?: string | null;
+  status: "started" | "success" | "failed";
+  error_message?: string | null;
+  user_agent?: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type AdminAnswer = {
@@ -113,6 +124,12 @@ function surveyStatusLabel(survey: Survey) {
   if (status === "open") return "Aberta";
   if (status === "scheduled") return "Agendada";
   return "Encerrada";
+}
+
+function submissionStatusLabel(status: SubmissionLog["status"]) {
+  if (status === "success") return "Sucesso";
+  if (status === "failed") return "Falhou";
+  return "Iniciada";
 }
 
 function inputDateTime(date = new Date()) {
@@ -525,7 +542,7 @@ function SurveyResponse({ detail, onBack, onDone }: { detail: Detail; onBack: ()
         <div className="responseBrand">
           <strong>Pesquisa de preço</strong>
         </div>
-        <button type="button" className="responseGhost" onClick={onBack}>
+        <button type="button" className="responseGhost" onClick={onBack} disabled={sending}>
           Voltar
         </button>
       </div>
@@ -581,7 +598,7 @@ function SurveyResponse({ detail, onBack, onDone }: { detail: Detail; onBack: ()
           </div>
         </div>
         <div className="responseSubmitBar">
-          <button type="button" className="secondary" onClick={onBack}>
+          <button type="button" className="secondary" onClick={onBack} disabled={sending}>
             Voltar
           </button>
           <button disabled={sending}>{sending ? "Enviando..." : "Enviar respostas"}</button>
@@ -1117,6 +1134,19 @@ function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail
               </div>
               );
             })}
+          </article>
+        ))}
+      </div>
+      <h3>Últimas tentativas de envio</h3>
+      <div className="submissionLogList">
+        {detail.submissionLogs?.length === 0 && <div className="empty">Ainda sem tentativas registradas.</div>}
+        {detail.submissionLogs?.map((log) => (
+          <article className={`submissionLog is${log.status}`} key={log.id}>
+            <div>
+              <strong>{formatDate(log.created_at)}</strong>
+              <span>{submissionStatusLabel(log.status)}</span>
+            </div>
+            <p>{log.error_message || (log.status === "success" ? "Resposta gravada com sucesso." : "Envio iniciado.")}</p>
           </article>
         ))}
       </div>
