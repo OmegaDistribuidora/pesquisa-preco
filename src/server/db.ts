@@ -49,7 +49,6 @@ export async function migrate() {
     alter table questions add column if not exists image_name text;
     alter table questions add column if not exists image_path text;
     alter table questions add column if not exists image_mime text;
-    alter table responses drop constraint if exists responses_survey_id_respondent_key_key;
 
     create table if not exists responses (
       id uuid primary key,
@@ -57,9 +56,10 @@ export async function migrate() {
       respondent_key text not null,
       submitted_at timestamptz not null default now(),
       ip_hash text,
-      user_agent text,
-      unique (survey_id, respondent_key)
+      user_agent text
     );
+
+    alter table responses drop constraint if exists responses_survey_id_respondent_key_key;
 
     create table if not exists answers (
       id uuid primary key,
