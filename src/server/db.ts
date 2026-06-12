@@ -67,6 +67,8 @@ export async function migrate() {
       question_id uuid not null references questions(id) on delete cascade,
       no_answer boolean not null default false,
       no_answer_reason text,
+      file_unavailable boolean not null default false,
+      file_unavailable_reason text,
       value_text text,
       value_number numeric,
       value_json jsonb,
@@ -78,6 +80,8 @@ export async function migrate() {
 
     alter table answers add column if not exists no_answer boolean not null default false;
     alter table answers add column if not exists no_answer_reason text;
+    alter table answers add column if not exists file_unavailable boolean not null default false;
+    alter table answers add column if not exists file_unavailable_reason text;
 
     create table if not exists answer_files (
       id uuid primary key,

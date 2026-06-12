@@ -423,6 +423,8 @@ app.get("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
       'kind', q.kind,
       'noAnswer', a.no_answer,
       'noAnswerReason', a.no_answer_reason,
+      'fileUnavailable', a.file_unavailable,
+      'fileUnavailableReason', a.file_unavailable_reason,
       'valueText', a.value_text,
       'valueNumber', a.value_number,
       'valueJson', a.value_json,
@@ -460,7 +462,9 @@ app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
       a.value_number,
       coalesce(files.file_paths, case when a.file_path is not null then array[a.file_path] else array[]::text[] end) as file_paths,
       coalesce(a.no_answer, false) as no_answer,
-      a.no_answer_reason
+      a.no_answer_reason,
+      coalesce(a.file_unavailable, false) as file_unavailable,
+      a.file_unavailable_reason
     from surveys s
     join questions q on q.survey_id = s.id
     left join responses r on r.survey_id = s.id
@@ -481,7 +485,8 @@ app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
     const record = byResponse.get(id) || { "Data da resposta": row.submitted_at ? new Date(row.submitted_at).toLocaleString("pt-BR") : "" };
     const links = Array.isArray(row.file_paths) ? row.file_paths.filter(Boolean).map((filePath: string) => publicFileUrl(req, filePath)) : [];
     const answer = row.text_type === "currency" && row.value_number !== null ? formatExportNumber(row.value_number) : normalizeExportAnswer(row.answer);
-    const parts = [answer, ...links].filter((part) => String(part || "").trim() !== "");
+    const fileUnavailable = row.file_unavailable ? `Não consigo tirar a foto: ${row.file_unavailable_reason || ""}` : "";
+    const parts = [answer, ...links, fileUnavailable].filter((part) => String(part || "").trim() !== "");
     record[row.question_title] = row.no_answer ? `Não tenho uma resposta: ${row.no_answer_reason || ""}` : parts.join(" | ");
     byResponse.set(id, record);
   }
@@ -555,10 +560,15 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
       const rawValue = isStructuredAnswer && "value" in rawAnswer ? rawAnswer.value : rawAnswer;
       const noAnswer = Boolean(isStructuredAnswer && rawAnswer.noAnswer);
       const noAnswerReason = noAnswer ? String(rawAnswer.reason || "").trim() : "";
+      const fileUnavailable = !noAnswer && Boolean(isStructuredAnswer && rawAnswer.fileUnavailable);
+      const fileUnavailableReason = fileUnavailable ? String(rawAnswer.fileUnavailableReason || "").trim() : "";
       const questionFiles = files[`file_${q.id}`] || [];
       const hasValue = rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== "";
       if (noAnswer && !noAnswerReason) throw new Error(`Justifique por que não pode responder: ${q.title}`);
-      if (q.required && !noAnswer && !hasValue && !questionFiles.length) throw new Error(`Responda: ${q.title}`);
+      const requiresFile = Boolean(q.required && (q.has_file || q.kind === "upload"));
+      if (fileUnavailable && !fileUnavailableReason) throw new Error(`Justifique por que não consegue tirar a foto: ${q.title}`);
+      if (q.required && !noAnswer && q.kind !== "upload" && !hasValue) throw new Error(`Responda: ${q.title}`);
+      if (requiresFile && !noAnswer && !fileUnavailable && !questionFiles.length) throw new Error(`Envie uma foto ou justifique a falta da foto: ${q.title}`);
       for (const file of questionFiles) {
         if (q.file_max_mb && file.size > q.file_max_mb * 1024 * 1024) {
           throw new Error(`Arquivo maior que o limite em: ${q.title}`);
@@ -594,14 +604,16 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
       const answerId = uuid();
       await client.query(
         `insert into answers
-        (id, response_id, question_id, no_answer, no_answer_reason, value_text, value_number, value_json, file_name, file_path, file_mime, file_size)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        (id, response_id, question_id, no_answer, no_answer_reason, file_unavailable, file_unavailable_reason, value_text, value_number, value_json, file_name, file_path, file_mime, file_size)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           answerId,
           responseId,
           q.id,
           noAnswer,
           noAnswerReason || null,
+          fileUnavailable,
+          fileUnavailableReason || null,
           valueText,
           valueNumber,
           valueJson === null ? null : JSON.stringify(valueJson),

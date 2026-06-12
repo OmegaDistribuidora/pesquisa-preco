@@ -43,6 +43,8 @@ type AdminAnswer = {
   kind: QuestionKind;
   noAnswer?: boolean;
   noAnswerReason?: string;
+  fileUnavailable?: boolean;
+  fileUnavailableReason?: string;
   valueText?: string;
   valueNumber?: string;
   valueJson?: string | string[];
@@ -57,6 +59,8 @@ type PublicAnswer = {
   value?: unknown;
   noAnswer?: boolean;
   reason?: string;
+  fileUnavailable?: boolean;
+  fileUnavailableReason?: string;
 };
 
 const api = {
@@ -142,6 +146,93 @@ function normalizeCurrency(value: string) {
   if (!digits) return "";
   const number = Number(digits) / 100;
   return number.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function hasAnswerValue(value: unknown) {
+  return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function bytesFromMb(mb: number) {
+  return mb * 1024 * 1024;
+}
+
+function isCompressibleImage(file: File) {
+  return file.type.startsWith("image/") && file.type !== "image/svg+xml";
+}
+
+function replaceExtension(name: string, extension: string) {
+  const cleanName = name.replace(/\.[^.]+$/, "");
+  return `${cleanName || "foto"}.${extension}`;
+}
+
+function loadImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível ler a imagem."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Não foi possível compactar a imagem."))), "image/jpeg", quality);
+  });
+}
+
+async function compressImageToLimit(file: File, maxBytes: number) {
+  if (file.size <= maxBytes) return file;
+  const image = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Este navegador não conseguiu compactar a imagem.");
+
+  let scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+  let quality = 0.86;
+  let best: Blob | null = null;
+
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlob(canvas, quality);
+    if (!best || blob.size < best.size) best = blob;
+    if (blob.size <= maxBytes) {
+      return new File([blob], replaceExtension(file.name, "jpg"), { type: "image/jpeg", lastModified: Date.now() });
+    }
+    if (quality > 0.46) {
+      quality -= 0.12;
+    } else {
+      scale *= 0.78;
+      quality = 0.82;
+    }
+  }
+
+  if (best && best.size <= maxBytes) return new File([best], replaceExtension(file.name, "jpg"), { type: "image/jpeg", lastModified: Date.now() });
+  throw new Error(`Não foi possível reduzir "${file.name}" até o limite definido.`);
+}
+
+async function prepareFilesForUpload(selected: File[], maxMb: number) {
+  const maxBytes = bytesFromMb(maxMb);
+  const prepared: File[] = [];
+  for (const file of selected) {
+    if (file.size <= maxBytes) {
+      prepared.push(file);
+    } else if (isCompressibleImage(file)) {
+      prepared.push(await compressImageToLimit(file, maxBytes));
+    } else {
+      throw new Error(`"${file.name}" ultrapassa ${maxMb} MB e não pode ser compactado automaticamente.`);
+    }
+  }
+  return prepared;
 }
 
 function App() {
@@ -381,8 +472,7 @@ function SurveyResponse({ detail, onBack, onDone }: { detail: Detail; onBack: ()
   const completedCount = detail.questions.filter((question) => {
     const answer = answers[question.id] as PublicAnswer | undefined;
     const value = answer && typeof answer === "object" && !Array.isArray(answer) ? answer.value : answer;
-    const hasValue = Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null && String(value).trim() !== "";
-    return Boolean(answer?.noAnswer && answer.reason) || hasValue || Boolean(files[question.id]?.length);
+    return Boolean(answer?.noAnswer && answer.reason) || hasAnswerValue(value) || Boolean(files[question.id]?.length) || Boolean(answer?.fileUnavailable && answer.fileUnavailableReason);
   }).length;
   const progress = detail.questions.length ? Math.round((completedCount / detail.questions.length) * 100) : 0;
 
@@ -391,6 +481,16 @@ function SurveyResponse({ detail, onBack, onDone }: { detail: Detail; onBack: ()
     setSending(true);
     setFeedback(null);
     try {
+      for (const question of detail.questions) {
+        const answer = (answers[question.id] && typeof answers[question.id] === "object" && !Array.isArray(answers[question.id]) ? answers[question.id] : { value: answers[question.id] }) as PublicAnswer;
+        const noAnswer = Boolean(answer.noAnswer);
+        const questionHasFile = Boolean(question.has_file || question.hasFile || question.kind === "upload");
+        const questionFiles = files[question.id] || [];
+        if (noAnswer && !String(answer.reason || "").trim()) throw new Error(`Justifique por que não pode responder: ${question.title}`);
+        if (!noAnswer && answer.fileUnavailable && !String(answer.fileUnavailableReason || "").trim()) throw new Error(`Justifique por que não consegue tirar a foto: ${question.title}`);
+        if (question.required && !noAnswer && question.kind !== "upload" && !hasAnswerValue(answer.value)) throw new Error(`Responda: ${question.title}`);
+        if (question.required && !noAnswer && questionHasFile && !answer.fileUnavailable && questionFiles.length === 0) throw new Error(`Envie uma foto ou justifique a falta da foto: ${question.title}`);
+      }
       const body = new FormData();
       body.append("answers", JSON.stringify(answers));
       Object.entries(files).forEach(([id, fileList]) => fileList.forEach((file) => body.append(`file_${id}`, file)));
@@ -523,9 +623,27 @@ function QuestionInput({
   const answer = value && typeof value === "object" && !Array.isArray(value) ? (value as PublicAnswer) : { value };
   const fieldValue = answer.value;
   const noAnswer = Boolean(answer.noAnswer);
+  const fileUnavailable = Boolean(answer.fileUnavailable);
+  const [fileError, setFileError] = useState("");
+  const [preparingFiles, setPreparingFiles] = useState(false);
 
   function updateAnswer(patch: Partial<PublicAnswer>) {
     onAnswer({ ...answer, ...patch });
+  }
+
+  async function addFiles(selected: File[]) {
+    if (!selected.length) return;
+    setFileError("");
+    setPreparingFiles(true);
+    try {
+      const prepared = await prepareFilesForUpload(selected, fileMaxMb);
+      onFiles([...files, ...prepared]);
+      if (fileUnavailable) updateAnswer({ fileUnavailable: false, fileUnavailableReason: "" });
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : "Erro ao preparar arquivo.");
+    } finally {
+      setPreparingFiles(false);
+    }
   }
 
   function updateText(raw: string) {
@@ -563,7 +681,7 @@ function QuestionInput({
               <input
                 type={question.multiple ? "checkbox" : "radio"}
                 name={question.id}
-                disabled={noAnswer}
+                disabled={noAnswer || preparingFiles}
                 checked={question.multiple ? Array.isArray(fieldValue) && fieldValue.includes(option) : fieldValue === option}
                 onChange={(event) => {
                   if (question.multiple) {
@@ -601,11 +719,10 @@ function QuestionInput({
                 type="file"
                 multiple
                 accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-                disabled={noAnswer}
-                required={question.required && question.kind === "upload" && !noAnswer && files.length === 0}
-                onChange={(event) => {
+                disabled={noAnswer || preparingFiles}
+                onChange={async (event) => {
                   const selected = Array.from(event.target.files || []);
-                  onFiles([...files, ...selected]);
+                  await addFiles(selected);
                   event.target.value = "";
                 }}
               />
@@ -617,14 +734,16 @@ function QuestionInput({
                 accept="image/*"
                 capture="environment"
                 disabled={noAnswer}
-                onChange={(event) => {
+                onChange={async (event) => {
                   const selected = Array.from(event.target.files || []);
-                  onFiles([...files, ...selected]);
+                  await addFiles(selected);
                   event.target.value = "";
                 }}
               />
             </label>
           </div>
+          {preparingFiles && <span className="fileHelpText">Preparando imagem...</span>}
+          {fileError && <div className="inlineError">{fileError}</div>}
           {files.length > 0 && (
             <ul className="fileList">
               {files.map((file, fileIndex) => (
@@ -637,6 +756,32 @@ function QuestionInput({
               ))}
             </ul>
           )}
+          {question.required && (
+            <div className="noAnswerBox fileUnavailableBox">
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  disabled={noAnswer || preparingFiles}
+                  checked={fileUnavailable}
+                  onChange={(event) => {
+                    updateAnswer({ fileUnavailable: event.target.checked, fileUnavailableReason: event.target.checked ? answer.fileUnavailableReason || "" : "" });
+                    if (event.target.checked) onFiles([]);
+                  }}
+                />
+                Não consigo tirar a foto
+              </label>
+              {fileUnavailable && !noAnswer && (
+                <textarea
+                  className="reasonInput"
+                  rows={2}
+                  required
+                  placeholder="Justifique brevemente"
+                  value={String(answer.fileUnavailableReason || "")}
+                  onChange={(event) => updateAnswer({ fileUnavailableReason: event.target.value })}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
       {question.required && (
@@ -646,7 +791,12 @@ function QuestionInput({
               type="checkbox"
               checked={noAnswer}
               onChange={(event) => {
-                updateAnswer({ noAnswer: event.target.checked, value: event.target.checked ? "" : answer.value });
+                updateAnswer({
+                  noAnswer: event.target.checked,
+                  value: event.target.checked ? "" : answer.value,
+                  fileUnavailable: event.target.checked ? false : answer.fileUnavailable,
+                  fileUnavailableReason: event.target.checked ? "" : answer.fileUnavailableReason
+                });
                 if (event.target.checked) onFiles([]);
               }}
             />
@@ -986,6 +1136,10 @@ function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail
 
 function renderAnswer(answer: AdminAnswer, openPreview: (preview: { url: string; name: string }) => void): React.ReactNode {
   if (answer.noAnswer) return `Não tenho uma resposta: ${answer.noAnswerReason || "sem justificativa"}`;
+  const fileUnavailableText = answer.fileUnavailable ? `Não consigo tirar a foto: ${answer.fileUnavailableReason || "sem justificativa"}` : "";
+  const baseValue = answer.valueText || (answer.valueNumber ? (answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber)) : "") || (Array.isArray(answer.valueJson) ? answer.valueJson.join(", ") : answer.valueJson ? String(answer.valueJson) : "");
+  if (fileUnavailableText && baseValue) return `${baseValue} | ${fileUnavailableText}`;
+  if (fileUnavailableText) return fileUnavailableText;
   const imageFiles = answer.files?.filter((file) => file.fileMime?.startsWith("image/") && file.fileUrl) || [];
   if (imageFiles.length) {
     return (
