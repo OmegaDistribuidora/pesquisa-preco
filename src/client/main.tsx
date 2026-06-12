@@ -1169,9 +1169,10 @@ function renderAnswer(answer: AdminAnswer, openPreview: (preview: { url: string;
   const fileUnavailableText = answer.fileUnavailable ? `Não consigo tirar a foto: ${answer.fileUnavailableReason || "sem justificativa"}` : "";
   const valueText = answer.valueText === "[object Object]" ? "" : answer.valueText;
   const baseValue = valueText || (answer.valueNumber ? (answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber)) : "") || (Array.isArray(answer.valueJson) ? answer.valueJson.join(", ") : answer.valueJson ? String(answer.valueJson) : "");
-  const imageFiles = answer.files?.filter((file) => file.fileMime?.startsWith("image/") && file.fileUrl) || [];
-  const otherFiles = answer.files?.filter((file) => !(file.fileMime?.startsWith("image/") && file.fileUrl)) || [];
-  const hasSingleImage = Boolean(answer.fileUrl && answer.fileName && answer.fileMime?.startsWith("image/"));
+  const allFiles = answer.files || [];
+  const imageFiles = allFiles.filter((file, index, list) => file.fileMime?.startsWith("image/") && file.fileUrl && list.findIndex((item) => item.fileUrl === file.fileUrl) === index);
+  const otherFiles = allFiles.filter((file) => !(file.fileMime?.startsWith("image/") && file.fileUrl));
+  const hasSingleImage = Boolean(answer.fileUrl && answer.fileName && answer.fileMime?.startsWith("image/") && !imageFiles.some((file) => file.fileUrl === answer.fileUrl));
 
   if (baseValue || fileUnavailableText || imageFiles.length || otherFiles.length || hasSingleImage || answer.fileName) {
     return (

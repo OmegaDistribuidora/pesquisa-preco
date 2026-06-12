@@ -436,7 +436,7 @@ app.get("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
       'fileName', a.file_name,
       'fileMime', a.file_mime,
       'fileSize', a.file_size,
-      'fileUrl', case when a.file_path is not null then '/api/admin/files/' || a.file_path else null end,
+      'fileUrl', case when a.file_path is not null and coalesce(jsonb_array_length(af.files), 0) = 0 then '/api/admin/files/' || a.file_path else null end,
       'files', coalesce(af.files, '[]'::jsonb)
     ) order by q.position) as answers
     from responses r
