@@ -221,6 +221,11 @@ function normalizeExportAnswer(value: unknown) {
   }
 }
 
+function cleanExportText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text === "[object Object]" ? "" : text;
+}
+
 function formatExportNumber(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "";
@@ -484,7 +489,7 @@ app.get("/api/admin/surveys/:id/export", requireAdmin, async (req, res) => {
     const id = row.response_id || "sem_respostas";
     const record = byResponse.get(id) || { "Data da resposta": row.submitted_at ? new Date(row.submitted_at).toLocaleString("pt-BR") : "" };
     const links = Array.isArray(row.file_paths) ? row.file_paths.filter(Boolean).map((filePath: string) => publicFileUrl(req, filePath)) : [];
-    const answer = row.text_type === "currency" && row.value_number !== null ? formatExportNumber(row.value_number) : normalizeExportAnswer(row.answer);
+    const answer = row.text_type === "currency" && row.value_number !== null ? formatExportNumber(row.value_number) : cleanExportText(normalizeExportAnswer(row.answer));
     const fileUnavailable = row.file_unavailable ? `Não consigo tirar a foto: ${row.file_unavailable_reason || ""}` : "";
     const parts = [answer, ...links, fileUnavailable].filter((part) => String(part || "").trim() !== "");
     record[row.question_title] = row.no_answer ? `Não tenho uma resposta: ${row.no_answer_reason || ""}` : parts.join(" | ");
@@ -597,8 +602,6 @@ app.post("/api/surveys/:id/responses", submitLimiter, upload.any(), async (req, 
         for (const value of values) if (!allowed.has(String(value))) throw new Error(`Opção inválida em: ${q.title}`);
         valueJson = q.multiple ? values : values[0] || null;
         valueText = values.length ? values.join(", ") : null;
-      } else if (q.kind === "upload" && hasValue) {
-        valueText = String(rawValue);
       }
 
       const answerId = uuid();

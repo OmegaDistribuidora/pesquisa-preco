@@ -1137,7 +1137,8 @@ function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail
 function renderAnswer(answer: AdminAnswer, openPreview: (preview: { url: string; name: string }) => void): React.ReactNode {
   if (answer.noAnswer) return `Não tenho uma resposta: ${answer.noAnswerReason || "sem justificativa"}`;
   const fileUnavailableText = answer.fileUnavailable ? `Não consigo tirar a foto: ${answer.fileUnavailableReason || "sem justificativa"}` : "";
-  const baseValue = answer.valueText || (answer.valueNumber ? (answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber)) : "") || (Array.isArray(answer.valueJson) ? answer.valueJson.join(", ") : answer.valueJson ? String(answer.valueJson) : "");
+  const valueText = answer.valueText === "[object Object]" ? "" : answer.valueText;
+  const baseValue = valueText || (answer.valueNumber ? (answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber)) : "") || (Array.isArray(answer.valueJson) ? answer.valueJson.join(", ") : answer.valueJson ? String(answer.valueJson) : "");
   if (fileUnavailableText && baseValue) return `${baseValue} | ${fileUnavailableText}`;
   if (fileUnavailableText) return fileUnavailableText;
   const imageFiles = answer.files?.filter((file) => file.fileMime?.startsWith("image/") && file.fileUrl) || [];
@@ -1163,7 +1164,7 @@ function renderAnswer(answer: AdminAnswer, openPreview: (preview: { url: string;
     );
   }
   if (answer.fileName) return answer.fileName;
-  if (answer.valueText) return answer.valueText;
+  if (valueText) return valueText;
   if (answer.valueNumber) return answer.kind === "rating" ? `${answer.valueNumber} estrela(s)` : String(answer.valueNumber);
   if (Array.isArray(answer.valueJson)) return answer.valueJson.join(", ");
   if (answer.valueJson) return String(answer.valueJson);
