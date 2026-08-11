@@ -165,6 +165,13 @@ function normalizeCurrency(value: string) {
   return number.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function normalizeDecimalInput(value: string) {
+  const normalized = value.replace(/\./g, ",").replace(/[^\d,]/g, "");
+  const [integerPart, ...decimalParts] = normalized.split(",");
+  if (!decimalParts.length) return integerPart;
+  return `${integerPart},${decimalParts.join("")}`;
+}
+
 function hasAnswerValue(value: unknown) {
   return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null && String(value).trim() !== "";
 }
@@ -666,7 +673,7 @@ function QuestionInput({
   function updateText(raw: string) {
     if (textType === "integer") updateAnswer({ value: raw.replace(/\D/g, "") });
     else if (textType === "currency") updateAnswer({ value: normalizeCurrency(raw) });
-    else if (textType === "decimal") updateAnswer({ value: raw.replace(/[^\d,]/g, "") });
+    else if (textType === "decimal") updateAnswer({ value: normalizeDecimalInput(raw) });
     else updateAnswer({ value: raw });
   }
 

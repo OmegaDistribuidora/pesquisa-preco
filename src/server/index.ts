@@ -166,9 +166,16 @@ function normalizeQuestion(input: QuestionInput, position: number) {
   };
 }
 
+function normalizeBrazilianDecimalText(value: string) {
+  const cleaned = value.trim().replace(/[^\d,.-]/g, "");
+  if (!cleaned.includes(",") && /^\d+\.\d{1,2}$/.test(cleaned)) return cleaned.replace(".", ",");
+  return cleaned;
+}
+
 function brNumberToNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
-  const normalized = String(value)
+  const text = normalizeBrazilianDecimalText(String(value).replace(/^R\$\s*/i, "").trim());
+  const normalized = text
     .replace(/[^\d,.-]/g, "")
     .replace(/\./g, "")
     .replace(",", ".");
@@ -179,15 +186,18 @@ function brNumberToNumber(value: unknown) {
 
 function validateTextValue(value: unknown, textType: TextType) {
   const rawText = String(value ?? "").trim();
+  const hasCurrencyPrefix = /^R\$\s*/i.test(rawText);
   const text = textType === "currency" ? rawText.replace(/^R\$\s*/i, "").trim() : rawText;
+  const normalizedText = textType === "decimal" || textType === "currency" ? normalizeBrazilianDecimalText(text) : text;
   if (!text) return { text: "", number: null };
-  if (textType === "integer" && !/^\d+$/.test(text)) throw new Error("Informe apenas números inteiros.");
-  if ((textType === "decimal" || textType === "currency") && !/^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+(,\d+)?$/.test(text)) {
-    throw new Error("Informe um número no formato brasileiro.");
+  if (textType === "integer" && !/^\d+$/.test(text)) throw new Error("Informe apenas numeros inteiros.");
+  if ((textType === "decimal" || textType === "currency") && !/^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+(,\d+)?$/.test(normalizedText)) {
+    throw new Error("Informe um numero no formato brasileiro.");
   }
+  const displayText = textType === "currency" && hasCurrencyPrefix ? `R$ ${normalizedText}` : normalizedText;
   return {
-    text: rawText,
-    number: textType === "integer" || textType === "decimal" || textType === "currency" ? brNumberToNumber(rawText) : null
+    text: textType === "decimal" || textType === "currency" ? displayText : rawText,
+    number: textType === "integer" || textType === "decimal" || textType === "currency" ? brNumberToNumber(normalizedText) : null
   };
 }
 

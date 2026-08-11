@@ -105,5 +105,19 @@ export async function migrate() {
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     );
+
+    with decimal_dot_answers as (
+      select
+        answers.id,
+        regexp_replace(trim(answers.value_text), '^R\\$[[:space:]]*', '', 'i') as numeric_text
+      from answers
+      where answers.value_text ~ '^[[:space:]]*(R\\$[[:space:]]*)?[0-9]+\\.[0-9]{1,2}[[:space:]]*$'
+    )
+    update answers
+    set
+      value_text = regexp_replace(answers.value_text, '\\.([0-9]{1,2})(\\s*)$', ',\\1\\2'),
+      value_number = decimal_dot_answers.numeric_text::numeric
+    from decimal_dot_answers
+    where answers.id = decimal_dot_answers.id;
   `);
 }
