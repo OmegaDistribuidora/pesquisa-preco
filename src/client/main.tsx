@@ -94,6 +94,10 @@ const api = {
       body: body instanceof FormData ? body : JSON.stringify(body ?? {})
     });
     return parseResponse<T>(response);
+  },
+  async delete<T>(url: string): Promise<T> {
+    const response = await fetch(url, { method: "DELETE" });
+    return parseResponse<T>(response);
   }
 };
 
@@ -350,6 +354,21 @@ function App() {
             setAdminSurveys(list);
             setPublicSurveys(await api.get<Survey[]>("/api/surveys"));
             setAdminDetail(await api.get<Detail>(`/api/admin/surveys/${survey.id}`));
+          }}
+          onDeleteSurvey={async (survey) => {
+            if (!window.confirm(`Excluir permanentemente a pesquisa "${survey.title}" e todas as respostas?`)) return;
+            await api.delete(`/api/admin/surveys/${survey.id}`);
+            setNotice("Pesquisa excluida.");
+            setAdminDetail(null);
+            setAdminSurveys(await api.get<Survey[]>("/api/admin/surveys"));
+            setPublicSurveys(await api.get<Survey[]>("/api/surveys"));
+          }}
+          onDeleteResponse={async (detail, responseId) => {
+            if (!window.confirm("Excluir permanentemente esta resposta e todos os arquivos enviados nela?")) return;
+            await api.delete(`/api/admin/responses/${responseId}`);
+            setNotice("Resposta excluida.");
+            setAdminSurveys(await api.get<Survey[]>("/api/admin/surveys"));
+            setAdminDetail(await api.get<Detail>(`/api/admin/surveys/${detail.survey.id}`));
           }}
           onSaved={async (id) => {
             setNotice("Pesquisa criada com sucesso.");
@@ -850,6 +869,8 @@ function AdminArea({
   onOpen,
   onEdit,
   onCloseSurvey,
+  onDeleteSurvey,
+  onDeleteResponse,
   onCopy,
   builderSeed,
   editingSeed,
@@ -862,6 +883,8 @@ function AdminArea({
   onOpen: (survey: Survey) => void;
   onEdit: (detail: Detail) => void;
   onCloseSurvey: (survey: Survey) => void;
+  onDeleteSurvey: (survey: Survey) => void;
+  onDeleteResponse: (detail: Detail, responseId: string) => void;
   onCopy: (detail: Detail) => void;
   builderSeed: Detail | null;
   editingSeed: Detail | null;
@@ -884,6 +907,9 @@ function AdminArea({
                 Encerrar
               </button>
             )}
+            <button className="danger compactButton" onClick={() => onDeleteSurvey(survey)}>
+              Excluir
+            </button>
           </div>
         ))}
       </aside>
@@ -891,7 +917,7 @@ function AdminArea({
         {creating ? (
           <SurveyBuilder onSaved={onSaved} seed={builderSeed} editing={editingSeed} />
         ) : detail ? (
-          <AdminDetail detail={detail} onCloseSurvey={() => onCloseSurvey(detail.survey)} onCopy={() => onCopy(detail)} onEdit={() => onEdit(detail)} />
+          <AdminDetail detail={detail} onCloseSurvey={() => onCloseSurvey(detail.survey)} onDeleteSurvey={() => onDeleteSurvey(detail.survey)} onDeleteResponse={(responseId) => onDeleteResponse(detail, responseId)} onCopy={() => onCopy(detail)} onEdit={() => onEdit(detail)} />
         ) : (
           <div className="empty">Selecione ou crie uma pesquisa.</div>
         )}
@@ -1092,7 +1118,21 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
   );
 }
 
-function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail; onCloseSurvey: () => void; onCopy: () => void; onEdit: () => void }) {
+function AdminDetail({
+  detail,
+  onCloseSurvey,
+  onDeleteSurvey,
+  onDeleteResponse,
+  onCopy,
+  onEdit
+}: {
+  detail: Detail;
+  onCloseSurvey: () => void;
+  onDeleteSurvey: () => void;
+  onDeleteResponse: (responseId: string) => void;
+  onCopy: () => void;
+  onEdit: () => void;
+}) {
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   return (
     <section className="panel">
@@ -1120,6 +1160,9 @@ function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail
           <a className="button" href={`/api/admin/surveys/${detail.survey.id}/export`}>
             Exportar Excel
           </a>
+          <button className="danger" onClick={onDeleteSurvey}>
+            Excluir pesquisa
+          </button>
         </div>
       </div>
       <div className="stats">
@@ -1131,7 +1174,12 @@ function AdminDetail({ detail, onCloseSurvey, onCopy, onEdit }: { detail: Detail
         {detail.responses?.length === 0 && <div className="empty">Ainda sem respostas.</div>}
         {detail.responses?.map((response) => (
           <article className="responseCard" key={response.id}>
-            <strong>{formatDate(response.submitted_at)}</strong>
+            <div className="responseCardHeader">
+              <strong>{formatDate(response.submitted_at)}</strong>
+              <button className="danger compactButton" onClick={() => onDeleteResponse(response.id)}>
+                Excluir resposta
+              </button>
+            </div>
             {detail.questions.map((question) => {
               const answer = response.answers?.[question.id];
               return (

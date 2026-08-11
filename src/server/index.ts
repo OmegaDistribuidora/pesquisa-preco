@@ -97,6 +97,20 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+async function removeUploadedFiles(filePaths: Array<string | null | undefined>) {
+  await Promise.all(
+    [...new Set(filePaths.filter(Boolean).map((filePath) => path.basename(String(filePath))))].map(async (file) => {
+      try {
+        await fs.promises.unlink(path.join(config.uploadDir, file));
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          console.warn(`Nao foi possivel remover arquivo ${file}:`, error);
+        }
+      }
+    })
+  );
+}
+
 function signAdminToken() {
   return jwt.sign({ role: "admin" }, config.sessionSecret, { expiresIn: "8h" });
 }
@@ -293,6 +307,69 @@ app.post("/api/admin/surveys/:id/close", requireAdmin, async (req, res) => {
     return;
   }
   res.json({ ok: true, survey: result.rows[0] });
+});
+
+app.delete("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  let filePaths: Array<string | null> = [];
+  try {
+    await client.query("begin");
+    const survey = await client.query("select id from surveys where id=$1", [req.params.id]);
+    if (!survey.rowCount) throw new Error("Pesquisa nao encontrada.");
+    const files = await client.query(
+      `select image_path as file_path from questions where survey_id=$1 and image_path is not null
+       union all
+       select answers.file_path from answers
+       join responses on responses.id = answers.response_id
+       where responses.survey_id=$1 and answers.file_path is not null
+       union all
+       select answer_files.file_path from answer_files
+       join answers on answers.id = answer_files.answer_id
+       join responses on responses.id = answers.response_id
+       where responses.survey_id=$1`,
+      [req.params.id]
+    );
+    filePaths = files.rows.map((row) => row.file_path);
+    await client.query("delete from surveys where id=$1", [req.params.id]);
+    await client.query("commit");
+    await removeUploadedFiles(filePaths);
+    res.json({ ok: true });
+  } catch (error) {
+    await client.query("rollback");
+    res.status(404).json({ error: error instanceof Error ? error.message : "Erro ao excluir pesquisa." });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete("/api/admin/responses/:id", requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  let filePaths: Array<string | null> = [];
+  try {
+    await client.query("begin");
+    const response = await client.query("select id from responses where id=$1", [req.params.id]);
+    if (!response.rowCount) throw new Error("Resposta nao encontrada.");
+    const files = await client.query(
+      `select answers.file_path from answers
+       where answers.response_id=$1 and answers.file_path is not null
+       union all
+       select answer_files.file_path from answer_files
+       join answers on answers.id = answer_files.answer_id
+       where answers.response_id=$1`,
+      [req.params.id]
+    );
+    filePaths = files.rows.map((row) => row.file_path);
+    await client.query("delete from submission_logs where response_id=$1", [req.params.id]);
+    await client.query("delete from responses where id=$1", [req.params.id]);
+    await client.query("commit");
+    await removeUploadedFiles(filePaths);
+    res.json({ ok: true });
+  } catch (error) {
+    await client.query("rollback");
+    res.status(404).json({ error: error instanceof Error ? error.message : "Erro ao excluir resposta." });
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/api/admin/surveys", requireAdmin, upload.any(), async (req, res) => {
