@@ -30,6 +30,8 @@ type Question = {
   file_max_mb?: number;
   fileMaxMb?: number;
   image_url?: string | null;
+  image_name?: string | null;
+  sourceImageUrl?: string;
 };
 
 type Detail = {
@@ -946,7 +948,10 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
           options: question.options || [],
           multiple: question.multiple,
           hasFile: question.has_file || question.hasFile || false,
-          fileMaxMb: question.file_max_mb || question.fileMaxMb || 5
+          fileMaxMb: question.file_max_mb || question.fileMaxMb || 5,
+          image_url: question.image_url,
+          image_name: question.image_name,
+          sourceImageUrl: editing ? undefined : question.image_url || undefined
         }))
       : [questionDefaults()]
   );
@@ -976,7 +981,17 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
       };
       const body = new FormData();
       body.append("payload", JSON.stringify(payload));
-      Object.entries(questionImages).forEach(([questionId, file]) => {
+      const filesToUpload = { ...questionImages };
+      for (const question of questions) {
+        if (!filesToUpload[question.id] && question.sourceImageUrl) {
+          const response = await fetch(question.sourceImageUrl);
+          if (!response.ok) throw new Error(`Não foi possível copiar a foto de apoio da pergunta "${question.title}".`);
+          const blob = await response.blob();
+          const extension = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+          filesToUpload[question.id] = new File([blob], question.image_name || `imagem-pergunta.${extension}`, { type: blob.type });
+        }
+      }
+      Object.entries(filesToUpload).forEach(([questionId, file]) => {
         if (file) body.append(`question_image_${questionId}`, file);
       });
       const result = editing
@@ -990,6 +1005,33 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
 
   function updateQuestion(id: string, patch: Partial<Question>) {
     setQuestions((current) => current.map((question) => (question.id === id ? { ...question, ...patch } : question)));
+  }
+
+  function insertQuestionAfter(index: number) {
+    setQuestions((current) => {
+      const next = [...current];
+      next.splice(index + 1, 0, questionDefaults());
+      return next;
+    });
+  }
+
+  function duplicateQuestion(question: Question, index: number) {
+    const copyId = crypto.randomUUID();
+    const copy: Question = {
+      ...question,
+      id: copyId,
+      options: [...question.options],
+      sourceImageUrl: question.image_url || question.sourceImageUrl
+    };
+    setQuestions((current) => {
+      const next = [...current];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    const selectedImage = questionImages[question.id];
+    if (selectedImage) {
+      setQuestionImages((current) => ({ ...current, [copyId]: selectedImage }));
+    }
   }
 
   return (
@@ -1022,24 +1064,30 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
         <h3>Perguntas</h3>
       </div>
       {questions.map((question, index) => (
-        <div className="builderItem" key={question.id}>
+        <div className="builderQuestionBlock" key={question.id}>
+          <div className="builderItem">
           <div className="builderTitle">
             <strong>{index + 1}</strong>
             <input placeholder="Título da pergunta" value={question.title} onChange={(event) => updateQuestion(question.id, { title: event.target.value })} required />
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setQuestions((current) => current.filter((item) => item.id !== question.id));
-                setQuestionImages((current) => {
-                  const next = { ...current };
-                  delete next[question.id];
-                  return next;
-                });
-              }}
-            >
-              Remover
-            </button>
+            <div className="builderQuestionActions">
+              <button type="button" className="secondary" onClick={() => duplicateQuestion(question, index)}>
+                Copiar
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setQuestions((current) => current.filter((item) => item.id !== question.id));
+                  setQuestionImages((current) => {
+                    const next = { ...current };
+                    delete next[question.id];
+                    return next;
+                  });
+                }}
+              >
+                Remover
+              </button>
+            </div>
           </div>
           <label>
             Foto de apoio da pergunta
@@ -1108,11 +1156,17 @@ function SurveyBuilder({ onSaved, seed, editing }: { onSaved: (id: string) => vo
               </label>
             )}
           </div>
+          </div>
+          <button type="button" className="secondary addQuestionButton" onClick={() => insertQuestionAfter(index)}>
+            {index === questions.length - 1 ? "Adicionar pergunta" : "Adicionar pergunta aqui"}
+          </button>
         </div>
       ))}
-      <button type="button" className="secondary addQuestionButton" onClick={() => setQuestions((current) => [...current, questionDefaults()])}>
-        Adicionar pergunta
-      </button>
+      {questions.length === 0 && (
+        <button type="button" className="secondary addQuestionButton" onClick={() => setQuestions([questionDefaults()])}>
+          Adicionar pergunta
+        </button>
+      )}
       <button>Salvar pesquisa</button>
     </form>
   );

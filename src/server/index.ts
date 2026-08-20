@@ -508,7 +508,11 @@ app.put("/api/admin/surveys/:id", requireAdmin, upload.any(), async (req, res) =
 app.get("/api/admin/surveys/:id", requireAdmin, async (req, res) => {
   const survey = await pool.query("select * from surveys where id=$1", [req.params.id]);
   if (!survey.rowCount) return res.status(404).json({ error: "Pesquisa não encontrada." });
-  const questions = await pool.query("select * from questions where survey_id=$1 order by position", [req.params.id]);
+  const questions = await pool.query(
+    `select *, case when image_path is not null then '/api/question-images/' || image_path else null end as image_url
+    from questions where survey_id=$1 order by position`,
+    [req.params.id]
+  );
   const responses = await pool.query(
     `select r.id, r.submitted_at, jsonb_object_agg(q.id, jsonb_build_object(
       'title', q.title,
