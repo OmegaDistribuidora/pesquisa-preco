@@ -26,12 +26,17 @@ type QuestionInput = {
 
 const app = express();
 const upload = multer({ dest: config.uploadDir, limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
+const publicFileCacheControl = "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800, stale-if-error=604800";
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+app.use("/api/admin", (_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
 app.get("/api/question-images/:file", async (req, res) => {
   const file = path.basename(req.params.file);
   const result = await pool.query("select 1 from questions where image_path=$1 limit 1", [file]);
@@ -39,7 +44,10 @@ app.get("/api/question-images/:file", async (req, res) => {
     res.status(404).json({ error: "Imagem não encontrada." });
     return;
   }
-  res.sendFile(path.join(config.uploadDir, file));
+  res.sendFile(path.join(config.uploadDir, file), {
+    cacheControl: false,
+    headers: { "Cache-Control": publicFileCacheControl }
+  });
 });
 app.get("/api/admin/files/:file", requireAdmin, async (req, res) => {
   const file = path.basename(String(req.params.file));
@@ -57,7 +65,7 @@ app.get("/api/admin/files/:file", requireAdmin, async (req, res) => {
   const originalName = path.basename(String(result.rows[0].file_name || "arquivo"));
   res.type(result.rows[0].file_mime || "application/octet-stream");
   res.setHeader("Content-Disposition", `inline; filename="${originalName}"`);
-  res.sendFile(path.join(config.uploadDir, file));
+  res.sendFile(path.join(config.uploadDir, file), { cacheControl: false });
 });
 app.get("/api/files/:file", async (req, res) => {
   const file = path.basename(String(req.params.file));
@@ -75,9 +83,20 @@ app.get("/api/files/:file", async (req, res) => {
   const originalName = path.basename(String(result.rows[0].file_name || "arquivo"));
   res.type(result.rows[0].file_mime || "application/octet-stream");
   res.setHeader("Content-Disposition", `inline; filename="${originalName}"`);
-  res.sendFile(path.join(config.uploadDir, file));
+  res.sendFile(path.join(config.uploadDir, file), {
+    cacheControl: false,
+    headers: { "Cache-Control": publicFileCacheControl }
+  });
 });
-app.use("/uploads", requireAdmin, express.static(config.uploadDir));
+app.use(
+  "/uploads",
+  requireAdmin,
+  (_req, res, next) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    next();
+  },
+  express.static(config.uploadDir, { cacheControl: false })
+);
 
 const publicLimiter = rateLimit({
   windowMs: 60_000,

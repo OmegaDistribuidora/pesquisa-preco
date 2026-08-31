@@ -67,3 +67,5 @@ Configure um servico Postgres no Railway e adicione `DATABASE_URL`, `ADMIN_LOGIN
 `PUBLIC_BASE_URL` e opcional. Se ficar vazio, o sistema monta links publicos de arquivos usando o proprio dominio da requisicao. Use essa variavel apenas se quiser forcar um dominio especifico, como um dominio customizado.
 
 O comando de build e `npm run build`; o comando de start e `npm start`.
+
+Para reduzir o consumo de RAM e egress ao servir imagens, habilite o CDN do Railway em **Settings > Edge > CDN** no servico web. As rotas publicas de arquivos ja enviam cabecalhos de cache compativeis com o CDN, enquanto as rotas administrativas permanecem privadas.
